@@ -1,101 +1,196 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { Bot, MessageCirclePlus, Mic, MicOff} from "lucide-react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [messages, setMessages] = useState<Array<{ text: string; sender: string }>>([]);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      synthRef.current = window.speechSynthesis;
+
+      if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
+        const SpeechRecognitionConstructor = (window.SpeechRecognition || window.webkitSpeechRecognition) as new () => SpeechRecognition;
+        recognitionRef.current = new SpeechRecognitionConstructor();
+        
+        if (recognitionRef.current) {
+          recognitionRef.current.continuous = true;
+          recognitionRef.current.interimResults = true;
+
+          recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
+            const current = event.resultIndex;
+            const transcript = event.results[current][0].transcript;
+            setTranscript(transcript);
+          };
+
+          recognitionRef.current.onend = () => {
+            setIsListening(false);
+          };
+        }
+      }
+
+      const loadVoices = () => {
+        const availableVoices = synthRef.current?.getVoices() || [];
+        setVoices(availableVoices);
+        if (availableVoices.length > 0 && !selectedVoice) {
+          setSelectedVoice(availableVoices[0]);
+        }
+      };
+
+      loadVoices();
+      if (synthRef.current) {
+        synthRef.current.onvoiceschanged = loadVoices;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const startListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.start();
+      setIsListening(true);
+    } else {
+      console.error("Speech recognition not supported");
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      if (transcript.trim()) {
+        addMessage(transcript, "user");
+        speak(transcript);
+      }
+    }
+  };
+
+  const speak = (text: string) => {
+    if (synthRef.current && selectedVoice) {
+      // Cancel any ongoing speech
+      synthRef.current.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.voice = selectedVoice;
+      
+      utterance.onend = () => {
+        console.log("Speech finished");
+      };
+
+      utterance.onerror = (event) => {
+        console.error("Speech synthesis error:", event);
+      };
+
+      synthRef.current.speak(utterance);
+      addMessage(text, "bot");
+    } else {
+      console.error("Speech synthesis not supported or no voice selected");
+      if (!synthRef.current) {
+        console.error("synthRef.current is null");
+      }
+      if (!selectedVoice) {
+        console.error("No voice selected");
+      }
+    }
+  };
+
+  const addMessage = (text: string, sender: string) => {
+    setMessages((prevMessages) => [...prevMessages, { text, sender }]);
+    setTranscript("");
+  };
+
+  const handleVoiceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const voice = voices.find((v) => v.name === event.target.value);
+    setSelectedVoice(voice || null);
+  };
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-100 to-purple-100">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg overflow-hidden">
+        <h1 className="text-2xl font-bold p-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <MessageCirclePlus />
+            Voice-Enabled Chatbot
+          </span>
+          <Bot className="text-white" />
+        </h1>
+        <div className="p-4">
+          <div className="mb-4">
+            <label
+              htmlFor="voice-select"
+              className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"
+            >
+              Select Voice:
+            </label>
+            <select
+              id="voice-select"
+              className="w-full p-2 text-gray-700 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+              value={selectedVoice?.name || ""}
+              onChange={handleVoiceChange}
+            >
+              {voices.map((voice) => (
+                <option key={voice.name} value={voice.name}>
+                  {voice.name} ({voice.lang})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div
+            ref={chatContainerRef}
+            className="h-80 overflow-y-auto mb-4 p-3 border border-gray-200 rounded-lg bg-gray-50"
           >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            {messages.map((message, index) => (
+              <div
+                key={index}
+                className={`mb-3 p-3 rounded-lg max-w-[80%] ${
+                  message.sender === "user"
+                    ? "ml-auto bg-blue-500 text-white"
+                    : "mr-auto bg-gray-200 text-gray-800"
+                }`}
+              >
+                {message.text}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className={`flex-1 py-2 px-4 rounded-full ${
+                isListening
+                  ? "bg-red-500 hover:bg-red-600"
+                  : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+              } text-white font-bold transition-all duration-200 flex items-center justify-center`}
+              onClick={isListening ? stopListening : startListening}
+            >
+              {isListening ? (
+                <>
+                  <MicOff className="mr-2" /> Stop
+                </>
+              ) : (
+                <>
+                  <Mic className="mr-2" /> Start
+                </>
+              )}
+            </button>
+            
+          </div>
+          {transcript && (
+            <p className="mt-2 text-sm text-gray-600 italic">Listening: {transcript}</p>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </div>
+    </main>
   );
 }
